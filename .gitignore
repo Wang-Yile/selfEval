@@ -1,0 +1,9 @@
+/archive
+/data
+/demo
+/doc
+/**/__pycache__
+/lib/sandbox
+/lib/sandbox-tiny
+/selfeval.code-workspace
+1.*
