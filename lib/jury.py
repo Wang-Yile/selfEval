@@ -168,30 +168,28 @@ def jury(cwd: str, prog: Program, testconf: TestConf, judgeconf: JudgeConf, infi
     if interactor and (ret_interactor.stat & (SIG | MLE | OLE | FBD)):
         ret.verdict = "fail"
         ret.msg = "交互器运行失败 " + repr(ret_interactor)
+    elif interactor and ret_interactor.verdict != "ok":
+        ret.verdict, ret.msg, ret.score, _ = read_checklog(ret_interactor, checklog, "交互器")
+        if not _ or ret.verdict != "ok":
+            ret.verdict = "il"
     elif ret.verdict == "ok":
-        if interactor and ret_interactor.verdict != "ok":
-            ret.verdict, ret.msg, ret.score, _ = read_checklog(ret_interactor, checklog, "交互器")
-            if not _:
-                ret.verdict = "il"
-        else:
-            checker: Program = copy.deepcopy(judgeconf.checker)
-            lim = judgeconf.checker_limit()
-            if checker is None:
-                resp = run(Program("diff", "-Z", "-q", "--strip-trailing-cr", stdout, ansfile), lim, cwd, trust=True)
-                from .sandbox import EXIT
-                if resp.verdict == "re" and (resp.stat ^ EXIT) == 1:
-                    ret.verdict = "wa"
-                elif resp.verdict == "ok":
-                    ret.verdict = "ac"
-                else:
-                    ret.verdict = "fail"
-                    ret.msg = "diff 运行失败 " + repr(resp)
+        checker: Program = copy.deepcopy(judgeconf.checker)
+        lim = judgeconf.checker_limit()
+        if checker is None:
+            resp = run(Program("diff", "-Z", "-q", "--strip-trailing-cr", stdout, ansfile), lim, cwd, trust=True)
+            from .sandbox import EXIT
+            if resp.verdict == "re" and (resp.stat ^ EXIT) == 1:
+                ret.verdict = "wa"
+            elif resp.verdict == "ok":
+                ret.verdict = "ac"
             else:
-                checklog = get_unique_path(wd)
-                checker.args += [infile, stdout, ansfile]
-                resp = run(checker, lim, cwd, stderr=checklog, permissions=[(infile, 0), (stdout, 0), (ansfile, 0), (checklog, 1)])
-                ret.verdict, ret.msg, ret.score, _ = read_checklog(resp, checklog)
-    11
+                ret.verdict = "fail"
+                ret.msg = "diff 运行失败 " + repr(resp)
+        else:
+            checklog = get_unique_path(wd)
+            checker.args += [infile, stdout, ansfile]
+            resp = run(checker, lim, cwd, stderr=checklog, permissions=[(infile, 0), (stdout, 0), (ansfile, 0), (checklog, 1)])
+            ret.verdict, ret.msg, ret.score, _ = read_checklog(resp, checklog)
     if not DEBUG:
         shutil.rmtree(wd)
     return ret

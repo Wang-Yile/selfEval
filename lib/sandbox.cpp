@@ -14,22 +14,17 @@ sandbox.cpp
 #include <regex>
 #include <seccomp.h>
 #include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <string>
 #include <sys/ioctl.h>
 #include <sys/prctl.h>
-#include <sys/reg.h>
 #include <sys/resource.h>
 #include <sys/signalfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
-#include <sys/types.h>
 #include <sys/uio.h>
-#include <sys/user.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <unordered_map>
@@ -127,7 +122,7 @@ static inline identity_t get_identity(const fs::path &path) {
     return {st.st_dev, st.st_ino};
 }
 static inline void add_permission(const fs::path &path, int acc) {
-    // 请保证 path 的父目录存在
+    // 请保证 path 的父目录存在，路径不要以路径分隔符结尾
     ++acc;
     // cerr << "add permission(" << acc << ") " << path << endl;
     if (auto id = get_identity(fs::canonical(path.parent_path())); id != identity_null)
@@ -246,24 +241,13 @@ static inline int install_filter_raw() {
         BPF_ALLOW(SYS_write),
         BPF_ALLOW(SYS_close),
         BPF_ALLOW(SYS_lseek),
-        BPF_ALLOW(SYS_brk), // 调整堆大小
-        // 文件操作
-        BPF_ALLOW(SYS_pread64),
-        BPF_ALLOW(SYS_pwrite64),
-        BPF_ALLOW(SYS_readv),
-        BPF_ALLOW(SYS_writev),
-        BPF_ALLOW(SYS_preadv),
-        BPF_ALLOW(SYS_pwritev),
-        BPF_ALLOW(SYS_preadv2),
-        BPF_ALLOW(SYS_pwritev2),
-        // 内存管理
-        BPF_ALLOW(SYS_mmap),   // 内存映射
-        BPF_ALLOW(SYS_munmap), // 取消内存映射
-        BPF_ALLOW(SYS_msync),  // 内存同步到磁盘
-        BPF_ALLOW(SYS_fsync),
-        BPF_ALLOW(SYS_mprotect), // 内存保护
-        BPF_ALLOW(SYS_mremap),   // 重新映射内存
-        BPF_ALLOW(SYS_madvise),  // 内存建议
+        // 内存
+        BPF_ALLOW(SYS_brk),
+        BPF_ALLOW(SYS_mmap),
+        BPF_ALLOW(SYS_munmap),
+        BPF_ALLOW(SYS_mprotect),
+        BPF_ALLOW(SYS_msync),
+        BPF_ALLOW(SYS_madvise),
         // 文件系统操作
         BPF_ALLOW(SYS_access),
         BPF_ALLOW(SYS_faccessat),
@@ -368,6 +352,15 @@ static inline bool handle_syscall(int syscall, unsigned long long args[]) {
         return check_file_operation((int)args[0], -1);
     case SYS_fstatfs:
         return check_fd_operation((int)args[0], -1);
+    // 文件操作
+    case SYS_pread64:
+    case SYS_pwrite64:
+    case SYS_readv:
+    case SYS_writev:
+    case SYS_preadv:
+    case SYS_pwritev:
+    case SYS_preadv2:
+    case SYS_pwritev2:
     // 信号
     case SYS_rt_sigaction: // 开放这些调用可能导致 SIGALRM 被覆盖，只能被主进程/ulimit 杀死
     case SYS_rt_sigprocmask:
@@ -471,6 +464,7 @@ static inline int tracer(int listener_fd, int signal_fd) {
 time_t start_time;
 int status;
 rusage usage;
+bool child_overdue;
 
 int main(int argc, char *argv[]) {
     char *prog_path = argv[1];
@@ -494,6 +488,7 @@ int main(int argc, char *argv[]) {
     pid = fork();
     if (pid == 0) {
         pid = getpid();
+        close(socket_pair[0]);
         char **args = new char *[argc - args_st + 2];
         args[0] = prog_path;
         for (int i = args_st; i < argc; ++i)
@@ -512,6 +507,7 @@ int main(int argc, char *argv[]) {
         sched_setaffinity(pid, sizeof(mask), &mask);
         apply_rlimit();
         send_fd(socket_pair[1], install_filter_raw());
+        close(socket_pair[1]);
         tgkill(pid, gettid(), SIGSTOP);
         setitimer(ITIMER_PROF, &it, nullptr);
         execv(prog_path, args);
@@ -521,6 +517,7 @@ int main(int argc, char *argv[]) {
     } else if (pid > 0) {
         child_pid = pid;
         pid = getpid();
+        close(socket_pair[1]);
         add_permission("/etc/ld.so.preload", 0);
         add_permission("/etc/ld.so.cache", 0);
         add_permission("/lib", 0);
@@ -539,8 +536,10 @@ int main(int argc, char *argv[]) {
             add_permission(fs::path(argv[9 + (i << 1)]).lexically_normal(), atoi(argv[9 + (i << 1 | 1)]));
         it.it_value.tv_sec += 1;
         sa.sa_handler = [](int sig) {
-            if (sig == SIGALRM && child_pid > 0)
+            if (sig == SIGALRM && child_pid > 0) {
                 kill(child_pid, SIGKILL);
+                child_overdue = true;
+            }
         };
         sigaction(SIGALRM, &sa, nullptr);
         child_dirfd_path = fs::path("/proc/" + std::to_string(child_pid) + "/fd/");
@@ -549,6 +548,7 @@ int main(int argc, char *argv[]) {
         kill(pid, SIGSTOP); // 挂起等待进一步指令
         int signal_fd = install_signalfd();
         int listener_fd = recv_fd(socket_pair[0]);
+        close(socket_pair[0]);
         setitimer(ITIMER_REAL, &it, nullptr);
         int ret = tracer(listener_fd, signal_fd);
         if (ret == -1)
@@ -572,6 +572,8 @@ int main(int argc, char *argv[]) {
             perror("waitpid failed");
             ret = -1;
         }
+        if (child_overdue)
+            ret = TLE | TLE_OVERDUE;
         close(signal_fd);
         close(listener_fd);
         if (ret == -1)

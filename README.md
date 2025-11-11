@@ -18,6 +18,20 @@ rev22 及以前的版本均没有上传 GitHub。
 
 环境要求：Linux/WSL。
 
+本项目使用 Python 和 C++ 混合开发，在如下环境进行开发和测试：
+
+- 物理机
+  - Ubuntu 20.04.6 LTS
+  - Python 3.13.7
+  - C++ 17 (gcc 9.4.0)
+  - libseccomp-dev 2.5.1
+- WSL2
+  - Windows 11 25H2
+  - Ubuntu 24.04 LTS
+  - Python 3.12.3
+  - C++ 17 (gcc 13.3.0)
+  - rev18 及以上的构建版本未在该设备上测试。
+
 ### 搭建 Python 环境
 
 Python 版本需要不低于 3.12。
@@ -43,22 +57,6 @@ pip3 install -r requirements.txt
 在 lib 目录下执行命令 make 即可使用 gcc 编译沙箱，其它编译器请自行研究。
 
 注：rev22 之前沙箱基于 ptrace，特定情况下效率较低，更换底层后交互题测试效率可以提升约 110%。
-
-### 技术栈
-
-本项目使用 Python 和 C++ 混合开发，在如下环境进行开发和测试：
-
-- 物理机
-  - Ubuntu 20.04.6 LTS
-  - Python 3.13.7
-  - C++ 17 (gcc 9.4.0)
-  - libseccomp-dev 2.5.1
-- WSL2
-  - Windows 11 25H2
-  - Ubuntu 24.04 LTS
-  - Python 3.12.3
-  - C++ 17 (gcc 13.3.0)
-  - rev18 及以上的构建版本未在该设备上测试。
 
 ### 在 Windows/WSL 中使用
 

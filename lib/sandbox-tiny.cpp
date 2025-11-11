@@ -68,6 +68,8 @@ static inline int tracer() {
     }
 }
 
+bool child_overdue;
+
 int main(int argc, char *argv[]) {
     pid = fork();
     char *prog_path = argv[1];
@@ -110,8 +112,10 @@ int main(int argc, char *argv[]) {
         pid = getpid();
         it.it_value.tv_sec += 1;
         sa.sa_handler = [](int sig) {
-            if (sig == SIGALRM && child_pid > 0)
+            if (sig == SIGALRM && child_pid > 0) {
                 kill(child_pid, SIGKILL);
+                child_overdue = true;
+            }
         };
         sigaction(SIGALRM, &sa, nullptr);
         wait4(child_pid, &status, WUNTRACED, &usage);
@@ -120,6 +124,8 @@ int main(int argc, char *argv[]) {
         kill(child_pid, SIGCONT);
         setitimer(ITIMER_REAL, &it, nullptr);
         int ret = tracer();
+        if (child_overdue)
+            ret = TLE | TLE_OVERDUE;
         std::ofstream out(output, std::ios::out);
         out << trans(usage) - start_time << '\n';
         out << (usage.ru_maxrss << 10) << '\n';
