@@ -1,2 +1,3 @@
-wcwidth
-PySide6-Essentials
+PySide6_Essentials==6.9.3
+shiboken6==6.9.3
+wcwidth==0.2.14
