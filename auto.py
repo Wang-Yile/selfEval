@@ -28,7 +28,7 @@ try:
             if file.endswith(".cpp"):
                 print(f"测试 {file}")
                 p = os.path.join(cwd, file)
-                resp = subprocess.run(["python3.13", os.path.abspath("selfeval.py"), p, *sys.argv[1:]], stdin=subprocess.DEVNULL, cwd=cwd)
+                resp = subprocess.run(["python3", os.path.abspath("selfeval.py"), p, *sys.argv[1:]], stdin=subprocess.DEVNULL, cwd=cwd)
                 if resp.returncode:
                     failed.append(p)
                     print("\033[31;1m失败\033[0m，退出状态为", resp.returncode)

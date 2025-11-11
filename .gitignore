@@ -6,4 +6,6 @@
 /lib/sandbox
 /lib/sandbox-tiny
 /selfeval.code-workspace
-1.*
+/1.*
+/testlib.h
+/auto.py

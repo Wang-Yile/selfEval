@@ -36,12 +36,12 @@ sandbox.cpp
 #include <unordered_set>
 #include <vector>
 
+#include "sandbox.h"
+
 namespace fs = std::filesystem;
 
 using std::cerr;
 using std::endl;
-
-#include "sandbox.h"
 
 static inline void setlimit(int code, rlim_t soft, rlim_t hard = 0) {
     if (hard == 0)
@@ -83,13 +83,7 @@ std::string read_string(long addr) {
     for (;;) {
         remote_iov.iov_base = (void *)addr;
         ssize_t bytes_read = process_vm_readv(child_pid, &local_iov, 1, &remote_iov, 1, 0);
-        if (bytes_read < 0) {
-            if (result.empty()) {
-                throw std::system_error(errno, std::system_category(), "Failed to read process memory");
-            } else {
-                break;
-            }
-        } else if (bytes_read == 0)
+        if (bytes_read <= 0)
             break;
         int null_pos = -1;
         for (int i = 0; i < bytes_read; ++i)
@@ -133,6 +127,7 @@ static inline identity_t get_identity(const fs::path &path) {
     return {st.st_dev, st.st_ino};
 }
 static inline void add_permission(const fs::path &path, int acc) {
+    // 请保证 path 的父目录存在
     ++acc;
     // cerr << "add permission(" << acc << ") " << path << endl;
     if (auto id = get_identity(fs::canonical(path.parent_path())); id != identity_null)
@@ -204,7 +199,6 @@ static inline bool is_permitted(const fs::path &path, int acc, bool trace_on_pro
         trace_file_operation.active = 2;
         trace_file_operation.p.clear();
         trace_file_operation.ori = path;
-        // trace_file_operation.msg = "";
         trace_file_operation.acc = acc;
         trace_file_operation.permitted = 0;
     }
@@ -225,7 +219,7 @@ static inline bool check_file_operation_at(int dirfd, long addr, int acc, bool t
     fs::path path = read_string(addr);
     if (path.is_absolute())
         return is_permitted(path, acc, trace_on_prohibition);
-    if (dirfd == AT_FDCWD) // dirfd = 4294967196 时
+    if (dirfd == AT_FDCWD) // 相对当前工作目录的路径
         return is_permitted(fs::absolute(path), (int)acc, trace_on_prohibition);
     try {
         return is_permitted(fs::absolute(fs::read_symlink(child_dirfd_path / std::to_string(dirfd)) / path), acc, trace_on_prohibition);
@@ -272,17 +266,16 @@ static inline int install_filter_raw() {
         BPF_ALLOW(SYS_madvise),  // 内存建议
         // 文件系统操作
         BPF_ALLOW(SYS_access),
+        BPF_ALLOW(SYS_faccessat),
         BPF_ALLOW(SYS_stat),
         BPF_ALLOW(SYS_lstat),
-        BPF_ALLOW(SYS_statfs),
         BPF_ALLOW(SYS_fstat),
-        // 其它
+        // 系统运行需要
         BPF_ALLOW(SYS_getpid),
         BPF_ALLOW(SYS_gettid),
         BPF_ALLOW(SYS_getcwd),
         BPF_ALLOW(SYS_tgkill),
         BPF_ALLOW(SYS_arch_prctl),
-        // 系统
         BPF_ALLOW(SYS_sendmsg),
         BPF_ALLOW(SYS_exit),
         BPF_ALLOW(SYS_exit_group),
@@ -347,8 +340,7 @@ static inline int recv_fd(int socket) {
     if (recvmsg(socket, &msg, 0) < 0)
         return -1;
     cmsg = CMSG_FIRSTHDR(&msg);
-    if (cmsg && cmsg->cmsg_level == SOL_SOCKET &&
-        cmsg->cmsg_type == SCM_RIGHTS) {
+    if (cmsg && cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
         int fd;
         memcpy(&fd, CMSG_DATA(cmsg), sizeof(fd));
         return fd;
@@ -359,11 +351,40 @@ static inline int recv_fd(int socket) {
 bool child_execved;
 static inline bool handle_syscall(int syscall, unsigned long long args[]) {
     switch (syscall) {
+    case SYS_open:
+        return check_file_operation(args[1], args[2] & O_ACCMODE);
     case SYS_openat:
         return check_file_operation_at((int)args[0], args[1], args[2] & O_ACCMODE);
+    case SYS_ioctl:
+        return check_ioctl((int)args[0], args[1]);
+    case SYS_statx:
+    case SYS_newfstatat:
+        return check_file_operation_at((int)args[0], args[1], args[2] & O_ACCMODE);
+    case SYS_dup:
+    case SYS_dup2:
+    case SYS_dup3:
+        return check_fd_operation((int)args[0], -1);
+    case SYS_statfs:
+        return check_file_operation((int)args[0], -1);
+    case SYS_fstatfs:
+        return check_fd_operation((int)args[0], -1);
+    // 信号
+    case SYS_rt_sigaction: // 开放这些调用可能导致 SIGALRM 被覆盖，只能被主进程/ulimit 杀死
     case SYS_rt_sigprocmask:
+    case SYS_rt_sigreturn:
     case SYS_setitimer:
     case SYS_getitimer:
+    case SYS_timer_create:
+    case SYS_timer_delete:
+    // 时间
+    case SYS_gettimeofday:
+    case SYS_clock_gettime: // 获取时钟时间
+    case SYS_time:          // 获取秒级时间
+    case SYS_times:         // 获取进程时间
+    // 随机
+    case SYS_getrandom:
+    // 其他
+    case SYS_sched_yield: // 让出CPU
         return true;
     case SYS_execve: {
         if (child_execved)
@@ -372,9 +393,8 @@ static inline bool handle_syscall(int syscall, unsigned long long args[]) {
         return true;
     }
     default: {
-        return true;
-        // cerr << "\033[31;1mdeny\033[0m " << syscall << endl;
-        // return false;
+        cerr << "\033[31;1mdeny\033[0m " << syscall << endl;
+        return false;
     }
     }
 }
@@ -481,7 +501,7 @@ int main(int argc, char *argv[]) {
         args[argc - args_st + 1] = nullptr;
         sa.sa_handler = [](int sig) {
             if (sig == SIGALRM && pid > 0)
-                kill(pid, SIGKILL);
+                tgkill(pid, gettid(), SIGKILL);
         };
         sigaction(SIGALRM, &sa, nullptr);
         cpu_set_t mask;
@@ -492,7 +512,7 @@ int main(int argc, char *argv[]) {
         sched_setaffinity(pid, sizeof(mask), &mask);
         apply_rlimit();
         send_fd(socket_pair[1], install_filter_raw());
-        tgkill(getpid(), gettid(), SIGSTOP);
+        tgkill(pid, gettid(), SIGSTOP);
         setitimer(ITIMER_PROF, &it, nullptr);
         execv(prog_path, args);
         perror("execv failed");

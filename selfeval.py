@@ -21,7 +21,8 @@ print(BOLD("selfeval").toansi(), VERSION)
 
 # cache_path = os.path.abspath(".eval")
 cache_path = tempfile.mkdtemp(prefix="selfeval-main-cache-")
-testlib_path = os.path.abspath("testlib.h")
+# testlib_path = os.path.abspath("testlib.h")
+testlib_path = "/home/noilinux/selfeval/testlib.h"
 
 cmd_testconf = TestConf()
 
