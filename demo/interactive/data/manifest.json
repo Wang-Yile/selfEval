@@ -1,0 +1,7 @@
+{
+    // isolate 已经移动到用户配置，取消注释下面的项目可以看到 warning
+    // "isolate":true,
+    "checker_conf": {
+        "safe": true
+    }
+}

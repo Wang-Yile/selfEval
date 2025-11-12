@@ -151,9 +151,9 @@ def jury(cwd: str, prog: Program, testconf: TestConf, judgeconf: JudgeConf, infi
         if (interactor := judgeconf.interactor):
             checklog = get_unique_path(wd)
             permissions.append((checklog, 1))
-            ret, ret_interactor = run_interactive(prog, interactor, testconf.limit(), wd, None, stdin, stdout, subprocess.DEVNULL, checklog, None, permissions, judgeconf.isolate)
+            ret, ret_interactor = run_interactive(prog, interactor, testconf.limit(), wd, None, stdin, stdout, subprocess.DEVNULL, checklog, None, permissions, trust_interactor=judgeconf.interactor_is_safe())
         else:
-            ret = run(prog, testconf.limit(), wd, None, stdin, stdout, subprocess.DEVNULL, permissions, judgeconf.isolate)
+            ret = run(prog, testconf.limit(), wd, None, stdin, stdout, subprocess.DEVNULL, permissions)
         if name:
             stdin = os.path.join(wd, name + ".in")
             stdout = os.path.join(wd, name + ".out")
@@ -188,7 +188,7 @@ def jury(cwd: str, prog: Program, testconf: TestConf, judgeconf: JudgeConf, infi
         else:
             checklog = get_unique_path(wd)
             checker.args += [infile, stdout, ansfile]
-            resp = run(checker, lim, cwd, stderr=checklog, permissions=[(infile, 0), (stdout, 0), (ansfile, 0), (checklog, 1)])
+            resp = run(checker, lim, cwd, stderr=checklog, permissions=[(infile, 0), (stdout, 0), (ansfile, 0), (checklog, 1)], trust=judgeconf.checker_is_safe())
             ret.verdict, ret.msg, ret.score, _ = read_checklog(resp, checklog)
     if not DEBUG:
         shutil.rmtree(wd)

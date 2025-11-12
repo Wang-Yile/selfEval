@@ -6,6 +6,8 @@ from functools import cache, lru_cache
 from types import GenericAlias, UnionType
 from typing import Any, Callable
 
+import json5
+
 from .core import DEBUG_DS, error, warning
 from .utils import sec, msec, MiB, tobool, totime, tomem, ftime, fmemory, stdopen
 
@@ -307,26 +309,29 @@ class TestConf(SimpleModel):
     def limit(self, strict = False):
         return Limit.from_model(self, strict, strict)
 class JudgeConf(SimpleModel):
-    _method = {
-        "isolate": ModelTransformToBool,
-    }
+    # TODO 暂未实现 SimpleModel 嵌套，checker_conf 和 interactor_conf 提示的信息可能不完整
     name: str = None
     checker: Program | str = None
-    checker_conf: dict = {} # TODO
+    checker_conf: dict = {}
     interactor: Program | str = None
-    interactor_conf: dict = {} # TODO
+    interactor_conf: dict = {}
     graders: list[str] = []
     headers: list[str] = []
     additional: list[str] = []
     retry: int = 0
-    isolate: bool = False
+    @cache
+    def checker_is_safe(self) -> bool:
+        return self.checker_conf.get("safe", False)
     @cache
     def checker_limit(self, strict = False):
         return Limit.from_dict(self.checker_conf.get("limit", {}), strict, strict)
+    @cache
+    def interactor_is_safe(self) -> bool:
+        return self.interactor_conf.get("safe", False)
 def _read_conf(path: str):
     with stdopen(path) as file:
         try:
-            data = json.load(file)
+            data = json5.load(file)
         except json.JSONDecodeError as err:
             error(err, True)
             return

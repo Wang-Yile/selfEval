@@ -9,12 +9,10 @@ import threading
 from . import userconf
 from .core import DEBUG_SANDBOX, acquire_cpu, release_cpu, error, warning
 from .ds import Program, Limit, Verdict
-from .utils import fmemory, hash32, random_hash, stdopen, is_xok
+from .utils import fmemory, hash32, random_hash, stdopen
 
 SANDBOX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandbox")
 SANDBOX_TINY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandbox-tiny")
-SANDBOX_XOK = is_xok(SANDBOX)
-SANDBOX_TINY_XOK = is_xok(SANDBOX_TINY)
 
 EXIT = 0x10000
 SIG = 0x20000
@@ -107,14 +105,9 @@ class Sandbox():
             signal.signal(signal.SIGINT, ori)
     def start(self):
         if self.trust:
-            if SANDBOX_TINY_XOK:
-                sandbox = SANDBOX_TINY
-            else:
-                raise SandboxFatalError(f"sandbox-tiny 不可用。")
-        elif SANDBOX_XOK:
-            sandbox = SANDBOX
+            sandbox = SANDBOX_TINY
         else:
-            raise SandboxFatalError("sandbox 不可用。")
+            sandbox = SANDBOX
         self.ret = os.path.join(self.cwd, random_hash(hash32))
         limit_cmdline = [str(min(x, RLIMIT_INFINITY)) for x in self.limit.cmdline()]
         if self.isolate:
@@ -131,7 +124,10 @@ class Sandbox():
             permissions_cmdline.append(file)
             permissions_cmdline.append(str(pm))
         self._child_safe = False
-        self.proc = subprocess.Popen([sandbox, self.prog, self.ret, *limit_cmdline, cpuset_mask, *permissions_cmdline, *self.args], cwd=self.cwd, env=self.env, stdin=self.stdin, stdout=self.stdout, stderr=self.stderr, start_new_session=True)
+        try:
+            self.proc = subprocess.Popen([sandbox, self.prog, self.ret, *limit_cmdline, cpuset_mask, *permissions_cmdline, *self.args], cwd=self.cwd, env=self.env, stdin=self.stdin, stdout=self.stdout, stderr=self.stderr, start_new_session=True)
+        except OSError as err:
+            raise SandboxFatalError from err
         while True:
             _, stat = os.waitpid(self.proc.pid, os.WUNTRACED)
             if os.WIFSTOPPED(stat) or os.WIFSIGNALED(stat) or os.WIFEXITED(stat):
@@ -186,12 +182,12 @@ class Sandbox():
         file.close()
         self.ret = Verdict(verdict=verdict, tm=t, mem=mem, stat=stat, msg=msg)
 
-def run(prog: Program, limit: Limit, cwd: str, env: os._Environ = None, stdin = subprocess.DEVNULL, stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL, permissions: list[tuple[str, int]] = None, isolate = False, trust = False) -> Verdict:
+def run(prog: Program, limit: Limit, cwd: str, env: os._Environ = None, stdin = subprocess.DEVNULL, stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL, permissions: list[tuple[str, int]] = None, *, trust = False) -> Verdict:
     """
     需要在调用此函数前自行处理权限。
     """
     try:
-        with Sandbox(prog.prog, prog.args, limit, cwd, env, stdopen(stdin), stdopen(stdout, "w"), stdopen(stderr, "w"), permissions, isolate, trust) as box:
+        with Sandbox(prog.prog, prog.args, limit, cwd, env, stdopen(stdin), stdopen(stdout, "w"), stdopen(stderr, "w"), permissions, userconf.acquire_judge_isolate(), trust) as box:
             box.start()
             box.wait()
     except KeyboardInterrupt as err:
@@ -204,21 +200,22 @@ def run(prog: Program, limit: Limit, cwd: str, env: os._Environ = None, stdin = 
             err.add_note("对沙箱发送了 SIGALRM。")
         raise
     return box.ret
-def run_interactive(prog: Program, interactor: Program, limit: Limit, cwd: str, env: os._Environ = None, stdin = subprocess.DEVNULL, stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL, tlog = subprocess.DEVNULL, permissions_prog: list[tuple[str, int]] = None, permissions_interactor: list[tuple[str, int]] = None, isolate = False, trust = False) -> tuple[Verdict, Verdict]:
+def run_interactive(prog: Program, interactor: Program, limit: Limit, cwd: str, env: os._Environ = None, stdin = subprocess.DEVNULL, stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL, tlog = subprocess.DEVNULL, permissions_prog: list[tuple[str, int]] = None, permissions_interactor: list[tuple[str, int]] = None, *, trust_prog = False, trust_interactor = False) -> tuple[Verdict, Verdict]:
     """
     需要在调用此函数前自行处理权限。
     """
     if not isinstance(stdout, str):
         raise ValueError("run_interactive 的 stdout 参数必须是 str 类型。")
+    isolate = userconf.acquire_judge_isolate()
     if userconf.acquire_interactor_fast_sandbox():
-        trust = True
+        trust_prog = trust_interactor = True
     try:
         if userconf.acquire_interactor_echo():
             global _cnt
             _cnt = [-1, -1]
             with (
-                Sandbox(prog.prog, prog.args, limit, cwd, env, subprocess.PIPE, subprocess.PIPE, stdopen(stderr, "w"), permissions_prog, isolate, trust) as box1,
-                Sandbox(interactor.prog, interactor.args + [stdin, stdout], limit, cwd, env, subprocess.PIPE, subprocess.PIPE, stdopen(tlog, "w"), permissions_interactor, isolate, trust) as box2,
+                Sandbox(prog.prog, prog.args, limit, cwd, env, subprocess.PIPE, subprocess.PIPE, stdopen(stderr, "w"), permissions_prog, isolate, trust_prog) as box1,
+                Sandbox(interactor.prog, interactor.args + [stdin, stdout], limit, cwd, env, subprocess.PIPE, subprocess.PIPE, stdopen(tlog, "w"), permissions_interactor, isolate, trust_interactor) as box2,
             ):
                 box1.start()
                 box2.start()
@@ -234,9 +231,9 @@ def run_interactive(prog: Program, interactor: Program, limit: Limit, cwd: str, 
                 t2.join()
             print(f"选手程序发送 {"未知大小" if _cnt[0] == -1 else fmemory(_cnt[0])}，接收 {"未知大小" if _cnt[1] == -1 else fmemory(_cnt[1])}")
         else:
-            with Sandbox(prog.prog, prog.args, limit, cwd, env, subprocess.PIPE, subprocess.PIPE, stdopen(stderr, "w"), permissions_prog, isolate, trust) as box1:
+            with Sandbox(prog.prog, prog.args, limit, cwd, env, subprocess.PIPE, subprocess.PIPE, stdopen(stderr, "w"), permissions_prog, isolate, trust_prog) as box1:
                 box1.start()
-                with Sandbox(interactor.prog, interactor.args + [stdin, stdout], limit, cwd, env, box1.proc.stdout, box1.proc.stdin, stdopen(tlog, "w"), permissions_interactor, isolate, trust) as box2:
+                with Sandbox(interactor.prog, interactor.args + [stdin, stdout], limit, cwd, env, box1.proc.stdout, box1.proc.stdin, stdopen(tlog, "w"), permissions_interactor, isolate, trust_interactor) as box2:
                     box2.start()
                     box1.cont()
                     box2.cont()

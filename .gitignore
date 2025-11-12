@@ -1,6 +1,5 @@
 /archive
 /data
-/demo
 /doc
 /**/__pycache__
 /lib/sandbox
@@ -9,3 +8,6 @@
 /1.*
 /testlib.h
 /auto.py
+
+/demo/*
+!/demo/interactive/
