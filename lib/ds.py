@@ -16,14 +16,13 @@ class Program():
         self.args = list(args)
         self.env: os._Environ = None
 
-# TODO 用资源依赖项自动检查编译
-class ResourceDependency():
-    def __init__(self):
-        pass
-
 class _ModelNULLType():
     def __init_subclass__(cls):
         raise TypeError("_ModelNULLType 不能被继承，你应该直接使用 ModelNULL 常量。")
+    def __copy__(self):
+        return self
+    def __deepcopy__(self, memo):
+        return self
     def __bool__(self):
         return False
     def __eq__(self, value):
@@ -56,6 +55,7 @@ class ModelDirectTransform(ModelTransform):
     _method: dict[type, Callable[[Any], Any]] = {}
 class SimpleModel():
     """
+    初始化时会深拷贝默认值。
     不会处理所有下划线开头或在 _ignore 中的属性名，否则先通过 _alias 翻译别名再尝试操作。
     不可使用 isinstance 的类型注释请加入 _ignore 使其不被检查。（例如 typing.Optional 和 typing.Union，建议使用合并类型表达式）
     将 self._record_extra 和 self._record_invalid 设为支持 append 的容器即可打开错误记录。
@@ -270,18 +270,6 @@ class SimpleModel():
             setattr(ret, key, val)
         return ret
     @classmethod
-    def from_dict2(cls, dic: dict[str, Any], /, record_extra = False, record_invalid = False):
-        " 更高效的实现，但是部分异常不会被记录。 "
-        ret = cls()
-        if record_extra:
-            ret._record_extra = []
-        if record_invalid:
-            ret._record_invalid = []
-        for key in ret.validkeys():
-            if (val := dic.get(key, ModelNULL)) != ModelNULL:
-                setattr(ret, key, val)
-        return ret
-    @classmethod
     def from_model(cls, dic: "SimpleModel", /, record_extra = False, record_invalid = False):
         ret = cls()
         if record_extra:
@@ -290,18 +278,6 @@ class SimpleModel():
             ret._record_invalid = []
         for key, val in dic.items():
             setattr(ret, key, val)
-        return ret
-    @classmethod
-    def from_model2(cls, dic: "SimpleModel", /, record_extra = False, record_invalid = False):
-        " 更高效的实现，但是部分异常不会被记录。 "
-        ret = cls()
-        if record_extra:
-            ret._record_extra = []
-        if record_invalid:
-            ret._record_invalid = []
-        for key in ret.validkeys():
-            if (val := dic.get(key)) != ModelNULL:
-                setattr(ret, key, val)
         return ret
 
 def ModelMakeTransformToModel(cls: type[SimpleModel], /, record_extra = False, record_invalid = False):
@@ -318,6 +294,10 @@ class ModelTransformFmtTime(ModelTransform):
     _method = [(int, ftime)]
 class ModelTransformFmtMemory(ModelTransform):
     _method = [(int, fmemory)]
+
+# TODO
+class LangTag(SimpleModel):
+    pass
 
 class Limit(SimpleModel):
     _method = {
@@ -379,8 +359,10 @@ class JudgeConf(SimpleModel):
     }
     name: str = None
     checker: Program | str | None = None
+    checker_backup: str = None
     checker_conf: _CheckerConf = _CheckerConf(record_extra=True, record_invalid=True)
     interactor: Program | str | None = None
+    interactor_backup: str = None
     interactor_conf: _InteractorConf = _InteractorConf(record_extra=True, record_invalid=True)
     graders: list[str] = []
     headers: list[str] = []

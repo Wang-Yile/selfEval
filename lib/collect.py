@@ -4,7 +4,7 @@ from itertools import chain, islice
 
 from .core import warning
 from .ds import read_test_conf, JudgeConf, Test
-from .utils import path_cmp
+from .utils import is_xok, path_cmp
 
 _checkers = []
 _interactors = []
@@ -114,30 +114,29 @@ def collect_problem():
     for p in _matched_ansfile:
         warning(f"{repr(os.path.relpath(p, cwd))} 没有匹配输入文件，被忽略。", True)
     if _checkers:
-        checker = __collected_problem.checker
-        for x in _checkers:
-            if checker is None:
-                checker = x
-                continue
-            # TODO 如果使用 Makefile 且 Makefile 在可执行文件之后发生改变，需要抛出警告
-            if os.stat(x).st_mtime_ns > os.stat(checker).st_mtime_ns:
-                warning(f"找到多个校验器，使用更新的 {repr(os.path.relpath(x, cwd))} 覆盖 {repr(os.path.relpath(checker, cwd))}", True)
-                checker = x
-            else:
-                warning(f"找到多个校验器，忽略 {repr(os.path.relpath(x, cwd))}", True)
-        __collected_problem.checker = checker
+        _checkers.sort(key=lambda x: os.stat(x).st_mtime_ns, reverse=True)
+        if len(_checkers) > 1:
+            text = f"找到多个校验器，使用 {repr(os.path.relpath(_checkers[0], cwd))}"
+            for x in islice(_checkers, 1, None):
+                text += f"\n忽略 {repr(os.path.relpath(x, cwd))}"
+            warning(text, True)
+        __collected_problem.checker = _checkers[0]
+        for x in islice(_checkers, 1, None):
+            if not is_xok(x):
+                __collected_problem.checker_backup = x
+                break
     if _interactors:
-        interactor = __collected_problem.interactor
-        for x in _interactors:
-            if interactor is None:
-                interactor = x
-                continue
-            if os.stat(x).st_mtime_ns > os.stat(interactor).st_mtime_ns:
-                warning(f"找到多个交互库，使用更新的 {repr(os.path.relpath(x, cwd))} 覆盖 {repr(os.path.relpath(interactor, cwd))}", True)
-                interactor = x
-            else:
-                warning(f"找到多个交互库，忽略 {repr(os.path.relpath(x, cwd))}", True)
-        __collected_problem.interactor = interactor
+        _interactors.sort(key=lambda x: os.stat(x).st_mtime_ns, reverse=True)
+        if len(_interactors) > 1:
+            text = f"找到多个交互库，使用 {repr(os.path.relpath(_interactors[0], cwd))}"
+            for x in islice(_interactors, 1, None):
+                text += f"\n忽略 {repr(os.path.relpath(x, cwd))}"
+            warning(text, True)
+        __collected_problem.interactor = _interactors[0]
+        for x in islice(_interactors, 1, None):
+            if not is_xok(x):
+                __collected_problem.interactor_backup = x
+                break
     if _graders:
         __collected_problem.graders += _graders
     if _headers:

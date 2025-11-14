@@ -1,5 +1,5 @@
 VERSION = "1.5.0"
-BUILD = "rev23"
+BUILD = "rev24"
 
 import atexit
 import fcntl
@@ -11,7 +11,7 @@ import time
 
 from .color import *
 
-CACHE_DISABLED = False
+CACHE_DISABLED = True
 
 DEBUG = False
 DEBUG_DS = False

@@ -1,6 +1,6 @@
 # selfEval
 
-> version 1.5.0-rev23  
+> version 1.5.0-rev24  
 > Copyright (C) 2025 [Yile Wang](mailto:bluewindde@163.com)  
 > 使用 [GNU 通用公共许可证，第三版以上](https://www.gnu.org/licenses/gpl-3.0.html) 发布，不含任何担保。  
 

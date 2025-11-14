@@ -57,7 +57,7 @@ def main(source: str, data: list[str]):
     if problem.name is not None and problem.interactor is not None:
         error("使用文件读写时不能使用交互库。")
         return
-    prog = compile_program(cache_path, source, "c++14:O2", problem.headers, problem.graders, "program")
+    prog = compile_program(cache_path, source, None, "c++14:O2", problem.headers, problem.graders, "program")
     if prog is None:
         error("编译失败。")
         return
@@ -69,7 +69,7 @@ def main(source: str, data: list[str]):
     # TODO 收集数据文件夹中的 testlib
     checker = problem.checker
     if checker is not None:
-        problem.checker = compile_program(cache_path, checker, problem.checker_conf.lang, [testlib_path], [], "checker")
+        problem.checker = compile_program(cache_path, checker, problem.checker_backup, problem.checker_conf.lang, [testlib_path], [], "checker")
         if problem.get_real("checker") is None:
             error(f"校验器 {checker} 编译失败。")
             return
@@ -77,7 +77,7 @@ def main(source: str, data: list[str]):
             error(f"校验器 {checker} 编译失败，编译器退出状态为 {repr(problem.get_real("checker"))}")
             return
     if (interactor := problem.interactor) is not None:
-        problem.interactor = compile_program(cache_path, interactor, problem.interactor_conf.lang, [testlib_path], [], "interactor")
+        problem.interactor = compile_program(cache_path, interactor, problem.interactor_backup, problem.interactor_conf.lang, [testlib_path], [], "interactor")
         if problem.get_real("interactor") is None:
             error(f"交互库 {interactor} 编译失败。")
             return

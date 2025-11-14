@@ -4,21 +4,17 @@ import os
 import shutil
 import subprocess
 
-from . import userconf
 from .core import DEBUG, error
 from .ds import Program, Limit, TestConf, JudgeConf, Verdict, Test
 from .fmt import LiveStream
 from .sandbox import run, run_interactive
 from .utils import sec, get_unique_path, is_xok, copy_to, cache_add, cache_get
 
-# TODO: 如果 headers 和 graders 中存在相同名字的文件/文件夹，应该报错
 def _compile_cpp(cwd: str, source: str, output: str, graders: list[str], args: list[str]):
     return Program(output) if (ret := run(Program("g++", *args, source, *graders, "-o", output), Limit(time=sec(10)), cwd, stderr=None, trust=True)).verdict == "ok" else ret
 def _compile_cpp_makefile(cwd: str, usage: str):
     return Program(os.path.join(cwd, usage)) if (ret := run(Program("make", usage), Limit(time=sec(10)), cwd, stdout=None, stderr=None, trust=True)).verdict == "ok" else ret
-def compile_program(cwd: str, source: str, lang: str, headers: list[str], graders: list[str], /, usage = "program"):
-    if is_xok(source):
-        return Program(source)
+def compile_program(cwd: str, source: str, source_backup: str, lang: str, headers: list[str], graders: list[str], /, usage = "program"):
     wd = get_unique_path(cwd)
     os.mkdir(wd)
     for file in headers:
@@ -54,13 +50,19 @@ def compile_program(cwd: str, source: str, lang: str, headers: list[str], grader
                 error(f"未知的 C++ 语言标记 {repr(flag)}")
         if makefile:
             if not os.path.isfile(p := os.path.join(os.path.dirname(source), "Makefile")):
-                error("打上了 Makefile 标签，但未找到 Makefile。")
+                error("指定使用 Makefile 编译，但源文件同一目录下未找到 Makefile。")
                 return
+            if is_xok(source):
+                if os.stat(p).st_mtime_ns <= os.stat(source).st_mtime_ns:
+                    return Program(source)
+                if (source := source_backup) is None:
+                    return
             shutil.copyfile(p, os.path.join(wd, "Makefile"))
             shutil.copyfile(source, os.path.join(wd, usage + ".cpp"))
             return _compile_cpp_makefile(wd, usage)
         else:
-            p = os.path.join(wd, "a.cpp")
+            if is_xok(source):
+                return Program(source)
             try:
                 if (tmp := cache_get([source, *graders, *headers], args, "")) is not None:
                     shutil.copy(tmp, p := get_unique_path(wd))
@@ -69,7 +71,7 @@ def compile_program(cwd: str, source: str, lang: str, headers: list[str], grader
             except Exception as err:
                 err.add_note("尝试读取缓存时发生异常。")
                 error(err)
-            shutil.copyfile(source, p)
+            shutil.copyfile(source, p := os.path.join(wd, "a.cpp"))
             ret = _compile_cpp(wd, p, get_unique_path(wd), graders, args)
             if isinstance(ret, Program):
                 try:
