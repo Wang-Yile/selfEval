@@ -11,3 +11,4 @@
 
 /demo/*
 !/demo/interactive/
+!/demo/subtask/

@@ -1,0 +1,10 @@
+{
+    "time":1000,
+    "memory":"10MiB",
+    "stack":"abc",
+    "extra":"hello",
+    "keep":true,
+    "extra_dict":{
+        "extra":true
+    }
+}
