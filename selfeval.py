@@ -1,6 +1,7 @@
 import atexit
 import copy
 import os
+import resource
 import shutil
 import sys
 import tempfile
@@ -10,12 +11,12 @@ import tempfile
 
 from lib.collect import process_file, collect_tests, collect_problem, collected_problem
 from lib.color import *
-from lib.core import VERSION, DEBUG, error, fatal, _remind, tick, tock
-from lib.ds import TestConf, read_judge_conf, Verdict, Test
+from lib.core import VERSION, DEBUG, startup_recall, error, fatal, _remind, tick, tock
+from lib.ds import TestConf, JudgeConf, read_judge_conf, Verdict, Test
 from lib.fmt import LiveStream
 from lib.jury import compile_program, jury_test
 from lib.sandbox import SandboxFatalError
-from lib.utils import path_cmp, cache_clear
+from lib.utils import fmemory, path_cmp, cache_clear
 
 print(BOLD("selfeval").toansi(), VERSION)
 
@@ -68,7 +69,7 @@ def main(source: str, data: list[str]):
     # TODO 收集数据文件夹中的 testlib
     checker = problem.checker
     if checker is not None:
-        problem.checker = compile_program(cache_path, checker, problem.checker_conf.get("lang", "c++14:O2"), [testlib_path], [], "checker")
+        problem.checker = compile_program(cache_path, checker, problem.checker_conf.lang, [testlib_path], [], "checker")
         if problem.get_real("checker") is None:
             error(f"校验器 {checker} 编译失败。")
             return
@@ -76,13 +77,14 @@ def main(source: str, data: list[str]):
             error(f"校验器 {checker} 编译失败，编译器退出状态为 {repr(problem.get_real("checker"))}")
             return
     if (interactor := problem.interactor) is not None:
-        problem.interactor = compile_program(cache_path, interactor, problem.interactor_conf.get("lang", "c++14:O2"), [testlib_path], [], "interactor")
+        problem.interactor = compile_program(cache_path, interactor, problem.interactor_conf.lang, [testlib_path], [], "interactor")
         if problem.get_real("interactor") is None:
             error(f"交互库 {interactor} 编译失败。")
             return
         if isinstance(problem.get_real("interactor"), Verdict):
             error(f"交互库 {interactor} 编译失败，编译器退出状态为 {repr(problem.get_real("interactor"))}")
             return
+    startup_recall()
     live = LiveStream(tests)
     for test in tests:
         jury_test(cache_path, prog, copy.deepcopy(testconf), problem, test, live)
@@ -164,3 +166,4 @@ if __name__ == "__main__":
     except SandboxFatalError as err:
         fatal(err)
     tock("用时")
+    print("内存用量", fmemory(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024))

@@ -55,7 +55,8 @@ def _remind():
         print(CYAN("RECALL").toansi())
         for x in _rmd:
             print(x.toansi())
-atexit.register(_remind)
+def startup_recall():
+    atexit.register(_remind)
 
 # CPU 亲和性调度
 # 不要在运行过程中修改 CPU 核心数！！！

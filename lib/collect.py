@@ -1,5 +1,6 @@
 import os
 from contextlib import contextmanager
+from itertools import chain, islice
 
 from .core import warning
 from .ds import read_test_conf, JudgeConf, Test
@@ -9,34 +10,60 @@ _checkers = []
 _interactors = []
 _graders = []
 _headers = []
-def find_testcase(path: str, strict = False):
+ANSFILE_EXTS = ("ans", "out")
+def _find_ansfile_strict(path: str):
+    if path.endswith(".in"):
+        ret = []
+        dirpath = os.path.dirname(path)
+        for ex in ANSFILE_EXTS:
+            if os.path.isfile(p := os.path.join(dirpath, path[:-3] + ex)):
+                ret.append(p)
+        return ret
+    return path.endswith(".ans")
+def _find_ansfile_free(path: str):
     dirpath = os.path.dirname(path)
-    infile = os.path.basename(path)
-    if strict:
-        component = infile.rsplit(".", 1)
-        i = 1
-    else:
-        component = infile.split(".")
-        i = 0
-    ansfile = None
-    ok = False
+    ret = False
     cwd = os.getcwd()
-    while i < len(component):
-        if component[i] == "in":
-            ok = True
-            for ex in ("ans", "out"):
-                component[i] = ex
-                if os.path.isfile(p := os.path.join(dirpath, ".".join(component))):
-                    if ansfile is None:
-                        ansfile = p
-                    else:
-                        warning(f"{repr(os.path.relpath(path, cwd))} 匹配多个输出文件，忽略 {repr(os.path.relpath(p, cwd))}")
-        i += 1
-    if ok:
-        if ansfile is None:
-            warning(f"{repr(os.path.relpath(path, cwd))} 没有匹配输出文件，被忽略。")
+    for i, val in enumerate(comp := os.path.basename(path).split(".")):
+        if val == "in":
+            if not isinstance(ret, list):
+                ret = []
+            for ex in ANSFILE_EXTS:
+                if os.path.isfile(p := os.path.join(dirpath, ".".join(chain(islice(comp, i), (ex, ), islice(comp, i+1, None))))):
+                    ret.append(p)
+        elif val in ANSFILE_EXTS:
+            if isinstance(ret, list):
+                warning(f"忽略 {repr(os.path.relpath(path, cwd))}，因为无法判断它是输入文件还是输出文件。", True)
+                return None
+            ret = True
+    return ret
+_ansfile = set()
+_matched_ansfile = set()
+def find_testcase(path: str, strict = False):
+    component = _find_ansfile_strict(path) if strict else _find_ansfile_free(path)
+    if component is None or component is False:
+        return
+    elif component is True:
+        if path in _matched_ansfile:
+            _matched_ansfile.remove(path)
         else:
-            return (path, ansfile)
+            _ansfile.add(path)
+        return
+    ansfile = None
+    cwd = os.getcwd()
+    for p in component:
+        if p in _ansfile:
+            _ansfile.remove(p)
+        else:
+            _matched_ansfile.add(p)
+        if ansfile is None:
+            ansfile = p
+        else:
+            warning(f"{repr(os.path.relpath(path, cwd))} 匹配多个输出文件，其中忽略 {repr(os.path.relpath(p, cwd))}", True)
+    if ansfile is None:
+        warning(f"{repr(os.path.relpath(path, cwd))}，没有匹配输出文件，被忽略。", True)
+    else:
+        return (path, ansfile)
 def process_file(path: str, strict = False, testcase = True):
     name = os.path.basename(path)
     base, ext = os.path.splitext(name)
@@ -76,10 +103,16 @@ def collect_problem():
     _interactors.clear()
     _graders.clear()
     _headers.clear()
+    _ansfile.clear()
+    _matched_ansfile.clear()
     yield
     global __collected_problem
     __collected_problem = JudgeConf()
     cwd = os.getcwd()
+    for p in _ansfile:
+        warning(f"{repr(os.path.relpath(p, cwd))} 没有匹配输入文件，被忽略。", True)
+    for p in _matched_ansfile:
+        warning(f"{repr(os.path.relpath(p, cwd))} 没有匹配输入文件，被忽略。", True)
     if _checkers:
         checker = __collected_problem.checker
         for x in _checkers:
@@ -109,5 +142,11 @@ def collect_problem():
         __collected_problem.graders += _graders
     if _headers:
         __collected_problem.headers += _headers
-def collected_problem():
+    _checkers.clear()
+    _interactors.clear()
+    _graders.clear()
+    _headers.clear()
+    _ansfile.clear()
+    _matched_ansfile.clear()
+def collected_problem() -> JudgeConf:
     return __collected_problem

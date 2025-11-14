@@ -151,9 +151,9 @@ def jury(cwd: str, prog: Program, testconf: TestConf, judgeconf: JudgeConf, infi
         if (interactor := judgeconf.interactor):
             checklog = get_unique_path(wd)
             permissions.append((checklog, 1))
-            ret, ret_interactor = run_interactive(prog, interactor, testconf.limit(), wd, None, stdin, stdout, subprocess.DEVNULL, checklog, None, permissions, trust_interactor=judgeconf.interactor_is_safe())
+            ret, ret_interactor = run_interactive(prog, interactor, testconf.limit, wd, None, stdin, stdout, subprocess.DEVNULL, checklog, None, permissions, trust_interactor=judgeconf.checker_conf.safe)
         else:
-            ret = run(prog, testconf.limit(), wd, None, stdin, stdout, subprocess.DEVNULL, permissions)
+            ret = run(prog, testconf.limit, wd, None, stdin, stdout, subprocess.DEVNULL, permissions)
         if name:
             stdin = os.path.join(wd, name + ".in")
             stdout = os.path.join(wd, name + ".out")
@@ -170,11 +170,11 @@ def jury(cwd: str, prog: Program, testconf: TestConf, judgeconf: JudgeConf, infi
         ret.msg = "交互器运行失败 " + repr(ret_interactor)
     elif interactor and ret_interactor.verdict != "ok":
         ret.verdict, ret.msg, ret.score, _ = read_checklog(ret_interactor, checklog, "交互器")
-        if not _ or ret.verdict != "ok":
+        if not _ or ret.verdict == "wa":
             ret.verdict = "il"
     elif ret.verdict == "ok":
         checker: Program = copy.deepcopy(judgeconf.checker)
-        lim = judgeconf.checker_limit()
+        lim = judgeconf.checker_conf.limit
         if checker is None:
             resp = run(Program("diff", "-Z", "-q", "--strip-trailing-cr", stdout, ansfile), lim, cwd, trust=True)
             from .sandbox import EXIT
@@ -188,7 +188,7 @@ def jury(cwd: str, prog: Program, testconf: TestConf, judgeconf: JudgeConf, infi
         else:
             checklog = get_unique_path(wd)
             checker.args += [infile, stdout, ansfile]
-            resp = run(checker, lim, cwd, stderr=checklog, permissions=[(infile, 0), (stdout, 0), (ansfile, 0), (checklog, 1)], trust=judgeconf.checker_is_safe())
+            resp = run(checker, lim, cwd, stderr=checklog, permissions=[(infile, 0), (stdout, 0), (ansfile, 0), (checklog, 1)], trust=judgeconf.checker_conf.safe)
             ret.verdict, ret.msg, ret.score, _ = read_checklog(resp, checklog)
     if not DEBUG:
         shutil.rmtree(wd)

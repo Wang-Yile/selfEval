@@ -2,6 +2,11 @@
     // isolate 已经移动到用户配置，取消注释下面的项目可以看到 warning
     // "isolate":true,
     "checker_conf": {
-        "safe": true
+        "safe": true,
+        // "unsafe":false, // 这是冗余的配置项目
+        // "lang":"c++123", // 这是无效的配置项目，但是只在编译时报错
+        limit:{ // json5 特性：不需要引号的键名称
+            // "time":"512 MiB" // 这是无效的配置项目
+        }
     }
 }

@@ -572,14 +572,17 @@ int main(int argc, char *argv[]) {
             perror("waitpid failed");
             ret = -1;
         }
+        time_t t = trans(usage) - start_time;
         if (child_overdue)
             ret = TLE | TLE_OVERDUE;
+        else if (t > time_limit)
+            ret = TLE;
         close(signal_fd);
         close(listener_fd);
         if (ret == -1)
             return 1;
         std::ofstream out(output, std::ios::out);
-        out << trans(usage) - start_time << '\n';
+        out << t << '\n';
         out << (usage.ru_maxrss << 10) << '\n';
         out << ret << '\n';
 #ifndef TINY

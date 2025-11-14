@@ -14,12 +14,15 @@ from .utils import fmemory, hash32, random_hash, stdopen
 SANDBOX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandbox")
 SANDBOX_TINY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandbox-tiny")
 
+# sandbox.h 中定义的常量
 EXIT = 0x10000
 SIG = 0x20000
 TLE = 0x40000
 MLE = 0x80000
 OLE = 0x100000
 FBD = 0x200000
+
+TLE_OVERDUE = 1
 
 RLIMIT_INFINITY = (1 << (8 * ctypes.sizeof(ctypes.c_long))) - 1
 
@@ -160,6 +163,7 @@ class Sandbox():
         elif (stat & TLE) or self.limit.tl(t):
             verdict = "tl"
         elif (stat & MLE) or self.limit.ml(mem):
+            stat |= MLE
             verdict = "ml"
         elif stat & OLE:
             verdict = "ol"
